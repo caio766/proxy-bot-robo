@@ -2,12 +2,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const targetUrl = url.searchParams.get('url');
-    const mangaId = url.searchParams.get('manga');
 
     if (!targetUrl) return new Response("Erro: Use ?url=LINK", { status: 400 });
 
     const cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
-    const MY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    // --- AQUI ESTÁ O SEGREDO ---
+    // Substitua o texto abaixo pelo que o console do seu celular mostrou
+    const MY_USER_AGENT = "Mozilla/5.0 (Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0"; 
 
     const isImage = targetUrl.match(/\.(webp|jpg|jpeg|png|gif|avif)/i) || targetUrl.includes('r2d2storage.com');
 
@@ -32,7 +34,6 @@ export default {
       newHeaders.delete("Frame-Options");
       newHeaders.set("Access-Control-Allow-Origin", "*");
       newHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      newHeaders.set("Access-Control-Allow-Headers", "*");
 
       if (isImage) {
         const buffer = await response.arrayBuffer();
