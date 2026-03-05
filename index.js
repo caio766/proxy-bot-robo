@@ -62,31 +62,34 @@ export default {
       // Injeta script de filtro apenas em HTML
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
-        // Script melhorado com MutationObserver
+        // Script melhorado com seletor correto
         const filterScript = `
 <script>
 (function() {
   console.log('🔍 Filtro de capítulo iniciado');
 
   function aplicarFiltro() {
-    const container = document.querySelector('.reading-content');
+    // Tenta encontrar o contêiner de imagens
+    const container = document.querySelector('.chapter-images') || document.querySelector('#manga-safe-wrapper');
     if (!container) {
-      console.warn('⏳ Aguardando .reading-content...');
+      console.warn('⏳ Aguardando contêiner de imagens...');
       return false;
     }
     console.log('✅ Contêiner encontrado, aplicando filtro');
 
-    // Remove todos os elementos exceto o container
-    const novoBody = container.cloneNode(true);
-    document.body.innerHTML = '';
-    document.body.appendChild(novoBody);
+    // Clona o contêiner para não afetar o original
+    const novoConteudo = container.cloneNode(true);
 
-    // Adiciona estilo escuro
+    // Remove todo o conteúdo do body e insere o contêiner clonado
+    document.body.innerHTML = '';
+    document.body.appendChild(novoConteudo);
+
+    // Adiciona estilo escuro e centralizado
     const style = document.createElement('style');
     style.textContent = \`
       body { margin: 0; padding: 20px; background: #0a0a0a; display: flex; justify-content: center; }
-      .reading-content { max-width: 800px; width: 100%; background: #1a1a1a; padding: 15px; border-radius: 10px; }
-      .reading-content img { display: block; max-width: 100%; height: auto; margin: 10px auto; border-radius: 5px; }
+      .chapter-images, #manga-safe-wrapper { max-width: 800px; width: 100%; background: #1a1a1a; padding: 15px; border-radius: 10px; }
+      .chapter-images img, #manga-safe-wrapper img { display: block; max-width: 100%; height: auto; margin: 10px auto; border-radius: 5px; }
     \`;
     document.head.appendChild(style);
 
@@ -107,8 +110,12 @@ export default {
 })();
 </script>
         `;
-        // Insere antes do fechamento </body> (case insensitive)
-        body = body.replace(/(<\/body>)/i, filterScript + '$1');
+        // Insere antes do fechamento </body> (case insensitive) ou anexa no final
+        if (/<\/body>/i.test(body)) {
+          body = body.replace(/(<\/body>)/i, filterScript + '$1');
+        } else {
+          body += filterScript;
+        }
       }
 
       return new Response(body, { status: response.status, headers: newHeaders });
