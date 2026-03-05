@@ -7,12 +7,10 @@ export default {
 
     const cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
     
-    // O SEU USER AGENT REAL
     const MY_USER_AGENT = "Mozilla/5.0 (Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0";
 
     const isImage = targetUrl.match(/\.(webp|jpg|jpeg|png|gif|avif)/i) || targetUrl.includes('storage');
 
-    // Cabeçalhos específicos que o Firefox 128 envia
     const headers = new Headers({
       "User-Agent": MY_USER_AGENT,
       "Accept": isImage ? "image/avif,image/webp,*/*" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -20,7 +18,7 @@ export default {
       "Accept-Encoding": "gzip, deflate, br",
       "Referer": "https://mangalivre.tv/",
       "Origin": "https://mangalivre.tv",
-      "DNT": "1", // Do Not Track (Comum no Firefox)
+      "DNT": "1",
       "Upgrade-Insecure-Requests": "1",
       "Sec-Fetch-Dest": isImage ? "image" : "document",
       "Sec-Fetch-Mode": isImage ? "no-cors" : "navigate",
@@ -39,7 +37,6 @@ export default {
         redirect: "follow"
       });
 
-      // Se retornar 403 aqui, é porque a Cloudflare marcou o IP do Worker
       if (response.status === 403) {
         return new Response("Bloqueio Cloudflare (403): O IP deste Worker pode estar na lista negra ou o cookie expirou.", { status: 403 });
       }
@@ -57,36 +54,74 @@ export default {
       let body = await response.text();
       const proxyBase = `${url.origin}/?url=`;
 
-      // Substitui URLs de imagens do storage para passarem pelo proxy
       body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
         return `${proxyBase}${encodeURIComponent(match)}`;
       });
 
-      // Injeta script de filtro apenas em respostas HTML
+      // Injeta script de filtro melhorado apenas em HTML
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
         const filterScript = `
 <script>
 (function() {
-  function filtrarPagina() {
+  console.log('🎯 Script de filtro do proxy iniciado');
+
+  function aplicarFiltro() {
     const container = document.querySelector('.reading-content');
-    if (!container) return;
+    if (!container) {
+      console.warn('⚠️ Elemento .reading-content não encontrado. Tentando novamente em 1s...');
+      setTimeout(aplicarFiltro, 1000);
+      return;
+    }
+    console.log('✅ Contêiner encontrado:', container);
+
+    // Salva o container e limpa o body
     const novoConteudo = container.cloneNode(true);
     document.body.innerHTML = '';
     document.body.appendChild(novoConteudo);
+
+    // Adiciona estilo
     const style = document.createElement('style');
-    style.textContent = 'body { margin: 0; padding: 20px; background: #000; display: flex; justify-content: center; } .reading-content { max-width: 800px; width: 100%; background: #111; padding: 10px; border-radius: 8px; } .reading-content img { display: block; max-width: 100%; height: auto; margin: 10px auto; border-radius: 4px; }';
+    style.textContent = \`
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #0a0a0a;
+        display: flex;
+        justify-content: center;
+      }
+      .reading-content {
+        max-width: 800px;
+        width: 100%;
+        background: #1a1a1a;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      }
+      .reading-content img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        margin: 15px auto;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      }
+    \`;
     document.head.appendChild(style);
+
+    console.log('🎉 Filtro aplicado com sucesso!');
   }
+
+  // Tenta aplicar assim que o DOM estiver pronto
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', filtrarPagina);
+    document.addEventListener('DOMContentLoaded', aplicarFiltro);
   } else {
-    filtrarPagina();
+    aplicarFiltro();
   }
 })();
 </script>
         `;
-        // Insere o script antes do fechamento </body>
+        // Insere antes do fechamento </body>
         body = body.replace('</body>', filterScript + '</body>');
       }
 
