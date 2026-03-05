@@ -74,7 +74,7 @@ export default {
             visibility: hidden !important;
           }
 
-          /* 3. LIMPEZA GERAL DE INTERFACE */
+          /* 3. LIMPEZA GERAL DE INTERFACE (MANTIDO) */
           /* Esconde barras laterais, popups e elementos globais de interface do site original */
           header, footer, .main-header, .site-footer, .c-sidebar, .sidebar, 
           .ads, .ad-banner, .top-header, .bottom-header, #adblock-overlay {
@@ -112,7 +112,7 @@ export default {
         </style>
       `;
 
-      // Inserimos o estilo logo antes de fechar o </head>
+      // Inserimos o estilo logo antes de fechar o cabeçalho
       body = body.replace('</head>', `${styleFilter}</head>`);
 
       return new Response(body, { status: response.status, headers: newHeaders });
@@ -122,3 +122,4 @@ export default {
     }
   }
 };
+        
