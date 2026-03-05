@@ -6,26 +6,21 @@ export default {
     if (!targetUrl) return new Response("Proxy Ativo.", { status: 200 });
 
     const cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
-    
-    // MANTIDO: Seu User Agent real
     const MY_USER_AGENT = "Mozilla/5.0 (Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0";
 
     const isImage = targetUrl.match(/\.(webp|jpg|jpeg|png|gif|avif)/i) || targetUrl.includes('storage');
 
-    // MANTIDO: Cabeçalhos originais de bypass
     const headers = new Headers({
       "User-Agent": MY_USER_AGENT,
       "Accept": isImage ? "image/avif,image/webp,*/*" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
       "Accept-Language": "pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3",
-      "Accept-Encoding": "gzip, deflate, br",
       "Referer": "https://mangalivre.tv/",
       "Origin": "https://mangalivre.tv",
       "DNT": "1",
       "Upgrade-Insecure-Requests": "1",
       "Sec-Fetch-Dest": isImage ? "image" : "document",
       "Sec-Fetch-Mode": isImage ? "no-cors" : "navigate",
-      "Sec-Fetch-Site": "cross-site",
-      "Connection": "keep-alive"
+      "Sec-Fetch-Site": "cross-site"
     });
 
     if (cookieFromKV) {
@@ -40,7 +35,7 @@ export default {
       });
 
       if (response.status === 403) {
-        return new Response("Bloqueio Cloudflare (403): O IP deste Worker pode estar na lista negra ou o cookie expirou.", { status: 403 });
+        return new Response("Bloqueio Cloudflare (403)", { status: 403 });
       }
 
       let newHeaders = new Headers(response.headers);
@@ -56,66 +51,58 @@ export default {
       let body = await response.text();
       const proxyBase = `${url.origin}/?url=`;
 
-      // MANTIDO: Sua troca de URLs das imagens
       body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
         return `${proxyBase}${encodeURIComponent(match)}`;
       });
 
-      // --- INJEÇÃO DO FILTRO SNIPER ---
-      // Baseado nas imagens 12276 e 12277 (Console) e nos seus círculos vermelhos
-      const styleFilter = `
+      // --- INJEÇÃO DO SCRIPT SNIPER (MAIS FORTE QUE CSS) ---
+      const cleanScript = `
+        <script>
+          (function() {
+            const clearInterface = () => {
+              // Procura o container das imagens que identificamos (reading-content ou manga-safe-wrapper)
+              const mangaContainer = document.querySelector('.reading-content') || document.querySelector('#manga-safe-wrapper');
+              
+              if (mangaContainer) {
+                // Remove TUDO do corpo do site
+                document.body.innerHTML = '';
+                // Adiciona apenas as imagens de volta
+                document.body.appendChild(mangaContainer);
+                
+                // Aplica estilo básico para fundo preto e centralização
+                document.body.style.backgroundColor = 'black';
+                document.body.style.margin = '0';
+                mangaContainer.style.display = 'block';
+                mangaContainer.style.margin = '0 auto';
+                mangaContainer.style.maxWidth = '1000px';
+
+                // Ajusta as imagens para ficarem visíveis e grandes
+                document.querySelectorAll('img').forEach(img => {
+                   img.style.display = 'block';
+                   img.style.width = '100%';
+                   img.style.marginBottom = '10px';
+                });
+                
+                console.log('Limpeza Sniper Concluída');
+              }
+            };
+
+            // Executa a limpeza várias vezes para garantir que o site original não traga o lixo de volta
+            window.addEventListener('load', clearInterface);
+            setTimeout(clearInterface, 500);
+            setTimeout(clearInterface, 2000);
+            setTimeout(clearInterface, 5000);
+          })();
+        </script>
         <style>
-          /* 1. Mata as Divs Teimosas do Console (Image 12277) */
-          .a11y-speak-region, #a11y-speak-assertive, #a11y-speak-polite {
-            display: none !important;
-          }
-
-          /* 2. Mata o Topo: Capa, Título e Breadcrumb (Image 12187) */
-          .entry-header, .breadcrumb, .manga-setup, .header-manga, 
-          #manga-reading-nav-head, .profile-manga {
-            display: none !important;
-          }
-
-          /* 3. Mata o Rodapé: Discussão e Botões Extras (Image 12186) */
-          .manga-discussion, .comments-area, #disqus_thread, 
-          .nav-links, .site-footer, .breadcrumb-footer {
-            display: none !important;
-          }
-
-          /* 4. Limpeza Geral e Fundo Preto */
-          body, html {
-            background: #000 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow-x: hidden !important;
-          }
-          
-          header, footer, .sidebar, .ads, .ad-banner {
-            display: none !important;
-          }
-
-          /* 5. Força a exibição apenas do container de imagens */
-          .reading-content, #manga-safe-wrapper {
-            display: block !important;
-            visibility: visible !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            background: #000 !important;
-          }
-
-          /* 6. Ajusta a classe identificada no console: wp-manga-chapter-img */
-          .wp-manga-chapter-img, .img-responsive {
-            display: block !important;
-            width: 100% !important;
-            max-width: 800px !important; /* Tamanho ideal para leitura */
-            height: auto !important;
-            margin: 0 auto 10px auto !important;
-          }
+          /* Esconde tudo inicialmente via CSS para evitar o "flash" do site original */
+          body { background: black !important; }
+          header, footer, .sidebar, .manga-discussion, .nav-links { display: none !important; }
         </style>
       `;
 
-      // Insere o estilo antes do fim da tag head
-      body = body.replace('</head>', `${styleFilter}</head>`);
+      // Insere o script e o estilo no final do cabeçalho
+      body = body.replace('</head>', `${cleanScript}</head>`);
 
       return new Response(body, { status: response.status, headers: newHeaders });
 
@@ -124,4 +111,3 @@ export default {
     }
   }
 };
-
