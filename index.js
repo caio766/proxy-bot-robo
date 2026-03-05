@@ -54,75 +54,61 @@ export default {
       let body = await response.text();
       const proxyBase = `${url.origin}/?url=`;
 
+      // Substitui URLs de imagens do storage para passarem pelo proxy
       body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
         return `${proxyBase}${encodeURIComponent(match)}`;
       });
 
-      // Injeta script de filtro melhorado apenas em HTML
+      // Injeta script de filtro apenas em HTML
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
+        // Script melhorado com MutationObserver
         const filterScript = `
 <script>
 (function() {
-  console.log('🎯 Script de filtro do proxy iniciado');
+  console.log('🔍 Filtro de capítulo iniciado');
 
   function aplicarFiltro() {
     const container = document.querySelector('.reading-content');
     if (!container) {
-      console.warn('⚠️ Elemento .reading-content não encontrado. Tentando novamente em 1s...');
-      setTimeout(aplicarFiltro, 1000);
-      return;
+      console.warn('⏳ Aguardando .reading-content...');
+      return false;
     }
-    console.log('✅ Contêiner encontrado:', container);
+    console.log('✅ Contêiner encontrado, aplicando filtro');
 
-    // Salva o container e limpa o body
-    const novoConteudo = container.cloneNode(true);
+    // Remove todos os elementos exceto o container
+    const novoBody = container.cloneNode(true);
     document.body.innerHTML = '';
-    document.body.appendChild(novoConteudo);
+    document.body.appendChild(novoBody);
 
-    // Adiciona estilo
+    // Adiciona estilo escuro
     const style = document.createElement('style');
     style.textContent = \`
-      body {
-        margin: 0;
-        padding: 20px;
-        background: #0a0a0a;
-        display: flex;
-        justify-content: center;
-      }
-      .reading-content {
-        max-width: 800px;
-        width: 100%;
-        background: #1a1a1a;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.5);
-      }
-      .reading-content img {
-        display: block;
-        max-width: 100%;
-        height: auto;
-        margin: 15px auto;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      }
+      body { margin: 0; padding: 20px; background: #0a0a0a; display: flex; justify-content: center; }
+      .reading-content { max-width: 800px; width: 100%; background: #1a1a1a; padding: 15px; border-radius: 10px; }
+      .reading-content img { display: block; max-width: 100%; height: auto; margin: 10px auto; border-radius: 5px; }
     \`;
     document.head.appendChild(style);
 
-    console.log('🎉 Filtro aplicado com sucesso!');
+    console.log('🎉 Filtro aplicado!');
+    return true;
   }
 
-  // Tenta aplicar assim que o DOM estiver pronto
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', aplicarFiltro);
-  } else {
-    aplicarFiltro();
+  // Tenta aplicar imediatamente
+  if (!aplicarFiltro()) {
+    // Se não encontrou, observa mudanças no DOM
+    const observer = new MutationObserver(() => {
+      if (aplicarFiltro()) {
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 })();
 </script>
         `;
-        // Insere antes do fechamento </body>
-        body = body.replace('</body>', filterScript + '</body>');
+        // Insere antes do fechamento </body> (case insensitive)
+        body = body.replace(/(<\/body>)/i, filterScript + '$1');
       }
 
       return new Response(body, { status: response.status, headers: newHeaders });
