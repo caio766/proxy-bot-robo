@@ -51,58 +51,51 @@ export default {
       let body = await response.text();
       const proxyBase = `${url.origin}/?url=`;
 
-      // 1. Sua reescrita original de imagens
       body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
         return `${proxyBase}${encodeURIComponent(match)}`;
       });
 
-      // 2. APLICAÇÃO DO FILTRO (Injeção de CSS)
-      // Aqui nós escondemos o "lixo" baseado no que você inspecionou
+      // --- FILTRO REFEITO (MAIS SEGURO) ---
       const styleFilter = `
         <style>
-          /* Esconde tudo o que não é o conteúdo da leitura */
-          body > *:not(.reading-content):not(script):not(style),
-          header, footer, .main-header, .site-footer, .comments-area,
-          #disqus_thread, .sidebar, .nav-links, .manga-setup {
-            display: none !important;
-          }
-
-          /* Remove especificamente o aviso de AdBlock e pixels de anúncio que você achou */
+          /* 1. Esconde apenas elementos específicos que sabemos que são lixo */
+          header, footer, .main-header, .site-footer, 
+          .comments-area, #disqus_thread, .sidebar, 
+          .nav-links, .manga-setup, .breadcrumb,
           #adblock-overlay, #ad-bait-pixel, .ads, .ad-banner {
             display: none !important;
+            height: 0 !important;
+            overflow: hidden !important;
           }
 
-          /* Força o fundo a ser preto total para imersão */
+          /* 2. Força o fundo a ser preto */
           body, html {
-            background-color: #000 !important;
+            background: #000 !important;
+            color: #fff !important;
             margin: 0 !important;
             padding: 0 !important;
-            overflow-x: hidden !important;
           }
 
-          /* Centraliza e limpa o container das imagens */
+          /* 3. Garante que o container que você achou fique visível e centralizado */
           .reading-content, #manga-safe-wrapper, .chapter-images {
             display: block !important;
             visibility: visible !important;
+            opacity: 1 !important;
             width: 100% !important;
-            max-width: 100% !important;
+            max-width: 1000px !important;
             margin: 0 auto !important;
-            padding: 0 !important;
           }
 
-          /* Ajusta as imagens para ficarem perfeitas no celular/pc */
+          /* 4. Ajusta as imagens para não estourarem a tela */
           .wp-manga-chapter-img {
             display: block !important;
             width: 100% !important;
-            max-width: 900px !important; /* Tamanho confortável para leitura */
             height: auto !important;
-            margin: 0 auto 5px auto !important; /* Espaço pequeno entre as páginas */
-            border: none !important;
+            margin: 0 auto !important;
           }
         </style>
       `;
 
-      // Inserimos o estilo logo antes de fechar o cabeçalho
       body = body.replace('</head>', `${styleFilter}</head>`);
 
       return new Response(body, { status: response.status, headers: newHeaders });
@@ -112,3 +105,4 @@ export default {
     }
   }
 };
+                        
