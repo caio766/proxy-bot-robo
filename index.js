@@ -2,65 +2,51 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const targetUrl = url.searchParams.get('url');
-    const purge = url.searchParams.get('purge'); // Sistema de gerenciamento
+    const purge = url.searchParams.get('purge');
 
-    if (!targetUrl) return new Response("Proxy Ativo.", { status: 200 });
+    if (!targetUrl) return new Response("Proxy Sniper Ativo.", { status: 200 });
 
-    // --- CONFIGURAÇÃO DE CACHE ---
     const cache = caches.default;
-    const cacheKey = new Request(url.toString(), request);
+    // A chave do cache deve ser apenas a URL de destino para evitar conflitos
+    const cacheKey = new Request(url.toString(), {
+      method: "GET",
+      headers: request.headers
+    });
     
-    // Se NÃO for um pedido de limpeza (purge), tenta buscar no cache primeiro
     if (purge !== 'true') {
       let cachedResponse = await cache.match(cacheKey);
-      if (cachedResponse) {
-        console.log("Servindo do Cache: " + targetUrl);
-        return cachedResponse;
-      }
+      if (cachedResponse) return cachedResponse;
     }
 
-    // --- SE NÃO TIVER NO CACHE OU FOR PURGE, BUSCA NOVO ---
-    const cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
     const MY_USER_AGENT = "Mozilla/5.0 (Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0";
-
     const isImage = targetUrl.match(/\.(webp|jpg|jpeg|png|gif|avif)/i) || targetUrl.includes('storage');
 
     const headers = new Headers({
       "User-Agent": MY_USER_AGENT,
-      "Accept": isImage ? "image/avif,image/webp,*/*" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3",
+      "Accept": isImage ? "image/avif,image/webp,*/*" : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Referer": "https://mangalivre.tv/",
-      "Origin": "https://mangalivre.tv",
-      "DNT": "1",
-      "Upgrade-Insecure-Requests": "1",
-      "Sec-Fetch-Dest": isImage ? "image" : "document",
-      "Sec-Fetch-Mode": isImage ? "no-cors" : "navigate",
-      "Sec-Fetch-Site": "cross-site"
+      "Origin": "https://mangalivre.tv"
     });
 
-    if (cookieFromKV) {
-      headers.set("Cookie", cookieFromKV);
-    }
+    const cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
+    if (cookieFromKV) headers.set("Cookie", cookieFromKV);
 
     try {
-      const response = await fetch(targetUrl, { 
-        method: request.method, 
-        headers: headers,
-        redirect: "follow"
-      });
+      const response = await fetch(targetUrl, { method: "GET", headers });
 
-      if (response.status === 403) {
-        return new Response("Bloqueio Cloudflare (403)", { status: 403 });
-      }
+      if (response.status === 403) return new Response("Bloqueio Cloudflare (403)", { status: 403 });
 
+      // --- TRATAMENTO DE CABEÇALHOS PARA MATAR O MAX-AGE=0 ---
       let newHeaders = new Headers(response.headers);
       newHeaders.delete("X-Frame-Options");
       newHeaders.delete("Content-Security-Policy");
+      newHeaders.delete("Set-Cookie"); // Cookies de terceiros impedem o cache
       newHeaders.set("Access-Control-Allow-Origin", "*");
-
-      // --- ESTRATÉGIA DE 90 DIAS (7.776.000 segundos) ---
-      // O 'immutable' avisa o browser para nem perguntar se mudou.
-      newHeaders.set("Cache-Control", "public, s-maxage=7776000, max-age=7776000, immutable");
+      
+      // FORÇAR 90 DIAS AQUI (A ordem absoluta para a Cloudflare)
+      const cacheTime = "7776000"; // 90 dias
+      newHeaders.set("Cache-Control", `public, max-age=${cacheTime}, s-maxage=${cacheTime}, immutable`);
+      newHeaders.set("Cloudflare-CDN-Cache-Control", `max-age=${cacheTime}`);
 
       let finalResponse;
 
@@ -69,13 +55,14 @@ export default {
         finalResponse = new Response(buffer, { status: response.status, headers: newHeaders });
       } else {
         let body = await response.text();
-        const proxyBase = `${url.origin}/?url=`;
+        // Usando o seu domínio personalizado para as rotas internas
+        const proxyBase = `https://proxy.nuvoxtoons.xyz/?url=`;
 
         body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
           return `${proxyBase}${encodeURIComponent(match)}`;
         });
 
-        // --- SEU SCRIPT SNIPER (INTACTO) ---
+        // --- SEU SCRIPT SNIPER (MANTIDO) ---
         const cleanScript = `
           <script>
             (function() {
@@ -90,35 +77,30 @@ export default {
                   mangaContainer.style.margin = '0 auto';
                   mangaContainer.style.maxWidth = '1000px';
                   document.querySelectorAll('img').forEach(img => {
-                     img.style.display = 'block';
-                     img.style.width = '100%';
-                     img.style.marginBottom = '10px';
+                     img.style.display = 'block'; img.style.width = '100%'; img.style.marginBottom = '10px';
                   });
                 }
               };
               window.addEventListener('load', clearInterface);
               setTimeout(clearInterface, 500);
               setTimeout(clearInterface, 2000);
-              setTimeout(clearInterface, 5000);
             })();
           </script>
           <style>
             body { background: black !important; }
             header, footer, .sidebar, .manga-discussion, .nav-links { display: none !important; }
-          </style>
-        `;
+          </style>`;
+        
         body = body.replace('</head>', `${cleanScript}</head>`);
         finalResponse = new Response(body, { status: response.status, headers: newHeaders });
       }
 
-      // Salva no cache da Cloudflare antes de entregar ao usuário
+      // Salva no cache antes de retornar
       ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
-      
       return finalResponse;
 
     } catch (e) {
-      return new Response("Erro: " + e.message, { status: 500 });
+      return new Response("Erro Sniper: " + e.message, { status: 500 });
     }
   }
 };
-      
