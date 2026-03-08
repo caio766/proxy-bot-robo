@@ -2,125 +2,85 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
-    // CAPTURA DE URL ROBUSTA: Tenta pelo parâmetro e depois pelo link bruto
+    // Tenta pegar a URL de todas as formas possíveis
     let targetUrl = url.searchParams.get('url');
-    if (!targetUrl && request.url.includes('?url=')) {
-      targetUrl = request.url.split('?url=')[1];
+    
+    // Se falhar, tenta pegar direto da string de busca
+    if (!targetUrl && url.search) {
+      const params = new URLSearchParams(url.search);
+      targetUrl = params.get('url');
     }
 
-    const purge = url.searchParams.get('purge');
+    // Se ainda falhar, tenta quebrar o link manualmente (Último recurso)
+    if (!targetUrl && request.url.includes('url=')) {
+      targetUrl = request.url.split('url=')[1];
+    }
 
-    // Se não houver URL, mostra o status
+    // --- BLOCO DE DIAGNÓSTICO ---
     if (!targetUrl) {
-      return new Response("Proxy Ativo - Use ?url=https://...", { 
-        status: 200,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      return new Response(`Diagnóstico: O Proxy está vivo, mas não detectou a URL. 
+      Link recebido: ${request.url}
+      Caminho: ${url.pathname}
+      Busca: ${url.search}`, { 
+        status: 200, 
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' } 
       });
     }
 
-    // Decodifica a URL para evitar erros de caracteres especiais
+    // Limpa a URL caso ela tenha vindo suja
     try {
-      targetUrl = decodeURIComponent(targetUrl);
-    } catch (e) {
-      // Se falhar na decodificação, usa a original
+      targetUrl = decodeURIComponent(targetUrl).trim();
+    } catch (e) {}
+
+    // Validação básica de URL
+    if (!targetUrl.startsWith('http')) {
+      return new Response("Erro: A URL fornecida não é válida ou não começa com http/https", { status: 400 });
     }
 
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), { method: 'GET', headers: {} });
 
     // Lógica de Cache (HIT)
-    if (purge !== 'true') {
-      const cachedResponse = await cache.match(cacheKey);
-      if (cachedResponse) {
-        const responseWithHeader = new Response(cachedResponse.body, cachedResponse);
-        responseWithHeader.headers.set('X-Cache-Status', 'HIT');
-        return responseWithHeader;
-      }
+    const cachedResponse = await cache.match(cacheKey);
+    if (cachedResponse) {
+      const responseWithHeader = new Response(cachedResponse.body, cachedResponse);
+      responseWithHeader.headers.set('X-Cache-Status', 'HIT');
+      return responseWithHeader;
     }
 
-    // Busca cookie no KV se existir a variável de ambiente
-    let cookieFromKV = null;
-    if (env.mangalivre_session) {
-      cookieFromKV = await env.mangalivre_session.get("mangalivre_cookie");
-    }
-
-    const MY_USER_AGENT = "Mozilla/5.0 (Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0";
     const isImage = targetUrl.match(/\.(webp|jpg|jpeg|png|gif|avif)/i) || targetUrl.includes('storage');
-
-    const headers = new Headers({
-      "User-Agent": MY_USER_AGENT,
-      "Accept": isImage ? "image/avif,image/webp,*/*" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3",
-      "Referer": "https://mangalivre.tv/",
-      "Origin": "https://mangalivre.tv",
-      "DNT": "1"
-    });
-
-    if (cookieFromKV) {
-      headers.set("Cookie", cookieFromKV);
-    }
 
     try {
       const response = await fetch(targetUrl, { 
-        method: 'GET', 
-        headers: headers,
+        method: 'GET',
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "*/*",
+          "Referer": "https://mangalivre.tv/",
+          "Origin": "https://mangalivre.tv"
+        },
         redirect: "follow"
       });
 
-      if (!response.ok) {
-        return new Response(`Erro na origem: ${response.status}`, { status: response.status });
-      }
-
-      const proxyBase = `${url.origin}/?url=`;
-      let finalResponse;
-
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Access-Control-Allow-Origin', '*');
+      newHeaders.set('X-Cache-Status', 'MISS');
+      
+      // Se for imagem, força o cache agressivo
       if (isImage) {
-        // TRATAMENTO DE IMAGEM
-        const buffer = await response.arrayBuffer();
-        const newHeaders = new Headers({
-          'Content-Type': response.headers.get('Content-Type') || 'image/webp',
-          'Cache-Control': 'public, max-age=7776000, immutable',
-          'Access-Control-Allow-Origin': '*',
-          'X-Cache-Status': 'MISS'
-        });
-        
-        finalResponse = new Response(buffer, { 
-          status: response.status,
-          headers: newHeaders
-        });
-      } else {
-        // TRATAMENTO DE TEXTO/HTML (SEM SNIPER)
-        let body = await response.text();
-        
-        // Mantém apenas a substituição de links para o proxy continuar funcional
-        body = body.replace(/(["'])(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)(["'])/gi, (match, quote, urlMatch, quote2) => {
-          return `${quote}${proxyBase}${encodeURIComponent(urlMatch)}${quote2}`;
-        });
-        
-        body = body.replace(/(https?:\/\/aws\.r2d2storage\.com\/[^\s"']+)/gi, (match) => {
-          return `${proxyBase}${encodeURIComponent(match)}`;
-        });
-
-        const newHeaders = new Headers({
-          'Content-Type': response.headers.get('Content-Type') || 'text/html; charset=utf-8',
-          'Cache-Control': 'public, max-age=7776000, immutable',
-          'Access-Control-Allow-Origin': '*',
-          'X-Cache-Status': 'MISS'
-        });
-        
-        finalResponse = new Response(body, { 
-          status: response.status,
-          headers: newHeaders
-        });
+        newHeaders.set('Cache-Control', 'public, max-age=7776000, immutable');
       }
 
-      // Salva no cache da Cloudflare
+      const finalResponse = new Response(response.body, {
+        status: response.status,
+        headers: newHeaders
+      });
+
       ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
       return finalResponse;
 
     } catch (e) {
-      return new Response(`Erro: ${e.message}`, { status: 500 });
+      return new Response(`Erro ao buscar a imagem: ${e.message}`, { status: 500 });
     }
   }
 };
-    
